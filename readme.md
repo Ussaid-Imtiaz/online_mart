@@ -21,6 +21,7 @@ async def get_kafka_producer():
 ```
 
 ### AIOKafkaConsumer
+
 AIOKafkaConsumer is a high-level, asynchronous message consumer. It interacts with the assigned Kafka Group Coordinator node to allow multiple consumers to load balance consumption of topics (requires kafka >= 0.9.0.0).
 
 Example of AIOKafkaConsumer usage:
