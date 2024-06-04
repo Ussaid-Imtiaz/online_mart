@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package product;
+
+message Product {
+  int32 id = 1;
+  string name = 2;
+  string description = 3;
+  float price = 4;
+  int32 stock = 5;
+}

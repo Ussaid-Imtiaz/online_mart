@@ -1,6 +1,5 @@
-
+from user_service import setting
 from sqlmodel import SQLModel, create_engine, Session
-from services.user_service.app import settings
 
 
 # Step-1: Create Database on Neon
@@ -9,7 +8,7 @@ from services.user_service.app import settings
 
 # Create a variable using url as parameter and add psycopg with postgresql in url.
 connection_string: str = str(   # Convert URL into string
-    settings.DATABASE_URL
+    setting.DATABASE_URL
     ).replace(      
     "postgresql", 
     "postgresql+psycopg"
