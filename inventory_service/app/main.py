@@ -1,83 +1,115 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from sqlmodel import Session, select
-from kafka import KafkaProducer
-import inventory_pb2
-from google.protobuf.json_format import MessageToJson
-from .models.inventory import Inventory
-from .schemas.inventory import InventoryCreate, InventoryRead
-from .db import get_session, init_db
-from fastapi.middleware.cors import CORSMiddleware
-import json
+from fastapi import FastAPI, Depends, HTTPException
+from sqlmodel import  Session, select, Session
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, List
+from typing import Annotated
+from app.db import create_tables, get_session
+from app.models import Product
+from app.schemas import ProductRead, ProductCreate
 
-app = FastAPI()
+# Step-7: Create contex manager for app lifespan
+@asynccontextmanager   # Allows you to run setup code before the application starts and teardown code after the application shuts down. 
+async def lifespan(app:FastAPI) -> AsyncGenerator[None,None]:   # indicates that the lifespan function is an async generator(type hint is used to indicate that a function returns an asynchronous generator) that doesn't produce any values (the first None) and doesn't accept any values sent to it (the second None)
+    # asyncio.create_task(consume_message("products", settings.BOOTSTRAP_SERVER))
+    print("Creating Tables")
+    create_tables()
+    print("Tables Created")
+    yield     # Control is given back to FastAPI, app starts here. code before yield will run before the startup and code after the yield statement runs after the application shuts down
+    print("App is shutting down")
 
-origins = [
-    "http://localhost",
-    "http://localhost:8000",
-]
+# Create instance of FastAPI class 
+app : FastAPI = FastAPI(
+    lifespan=lifespan, # lifespan tells FastAPI to use the lifespan function to manage the application's lifespan events
+    title="My Inventory", 
+    version="1.0",
+    servers=[
+        {
+            "url": "http://127.0.0.1:8000",
+            "description": "Development Server"
+        }
+    ]
+) 
+    
+# Step-9: Create all endpoints of Product app
+@app.get("/")
+async def root():
+    return {"Hello" : "This is Inventory Service."}
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.get("/products", response_model=List[ProductRead])
+async def get_all(session:Annotated[Session, Depends(get_session)]
+                  ) -> List[ProductRead]:
+    
+    statement = select(Product)
+    products = session.exec(statement).all()
+    if products:
+        return products
+    else:
+        raise HTTPException(status_code=404, detail="No Product Found")
 
-producer = KafkaProducer(
-    bootstrap_servers='kafka:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+@app.get("/products/{id}", response_model=ProductRead )
+async def get_one(id: int ,session:Annotated[Session, Depends(get_session)]) -> ProductRead:
+    # SQLModel queries: Select Product of given id and execute first result
+    product = session.exec(select(Product).where(Product.id == id)).first()
 
-@app.on_event("startup")
-async def on_startup():
-    await init_db()
+    if product:
+        return product
+    else:
+        raise HTTPException(status_code=404, detail="No Product Found")
+    
+# Post endpoint
+@app.post("/products/", response_model=ProductRead)
+async def create_product(
+    product: ProductCreate, 
+    session: Annotated[Session, Depends(get_session)]
+    )->ProductRead:
 
-@app.post("/inventory/", response_model=InventoryRead, status_code=status.HTTP_201_CREATED)
-def create_inventory(*, session: Session = Depends(get_session), inventory: InventoryCreate):
-    new_inventory = Inventory(**inventory.dict())
-    session.add(new_inventory)
+    new_product = Product(name=product.name, description=product.description, price=product.price, stock=product.stock)
+    # Add product to the database
+    session.add(new_product)
     session.commit()
-    session.refresh(new_inventory)
+    session.refresh(new_product)
+    return new_product
 
-    # Create and send Kafka message
-    inventory_update = inventory_pb2.InventoryUpdate(
-        product_id=new_inventory.product_id,
-        quantity=new_inventory.quantity
-    )
-    producer.send('inventory_updates', MessageToJson(inventory_update))
+@app.put("/products/{product_id}", response_model=ProductRead)
+async def edit_one(
+    product_id: int, 
+    product_update: ProductCreate, 
+    session:Annotated[Session, Depends(get_session)]
+    ) -> ProductRead:
 
-    return new_inventory
+    # Fetch the product from the database
+    db_product = session.exec(select(Product).where(Product.id == product_id)).first()
+        
+    if db_product:
+        db_product.name = product_update.name
+        db_product.description = product_update.description
+        db_product.price = product_update.price
+        db_product.stock = product_update.stock
 
-@app.get("/inventory/{inventory_id}", response_model=InventoryRead)
-def read_inventory(*, session: Session = Depends(get_session), inventory_id: int):
-    inventory = session.get(Inventory, inventory_id)
-    if not inventory:
-        raise HTTPException(status_code=404, detail="Inventory not found")
-    return inventory
+        session.add(db_product)
+        session.commit()
+        session.refresh(db_product) 
+        return db_product
+    else:
+        raise HTTPException(status_code=404, detail="No Product Found")
 
-@app.get("/inventory/", response_model=list[InventoryRead])
-def read_inventory_list(*, session: Session = Depends(get_session)):
-    inventory = session.exec(select(Inventory)).all()
-    return inventory
+    
+@app.delete("/products/{product_id}")
+async def delete_product(
+    product_id: int,
+    session: Annotated[Session, Depends(get_session)]
+):
+    # Fetch the product from the database
+    db_product = session.exec(select(Product).where(Product.id == product_id)).first()
 
-@app.put("/inventory/{inventory_id}", response_model=InventoryRead)
-def update_inventory(*, session: Session = Depends(get_session), inventory_id: int, inventory: InventoryCreate):
-    db_inventory = session.get(Inventory, inventory_id)
-    if not db_inventory:
-        raise HTTPException(status_code=404, detail="Inventory not found")
-    for key, value in inventory.dict().items():
-        setattr(db_inventory, key, value)
-    session.add(db_inventory)
-    session.commit()
-    session.refresh(db_inventory)
-    return db_inventory
+    if db_product:
+        session.delete(db_product)
+        session.commit()
+        return {"message": "Product Deleted Successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="No Product Found")
 
-@app.delete("/inventory/{inventory_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_inventory(*, session: Session = Depends(get_session), inventory_id: int):
-    inventory = session.get(Inventory, inventory_id)
-    if not inventory:
-        raise HTTPException(status_code=404, detail="Inventory not found")
-    session.delete(inventory)
-    session.commit()
-    return
+
+
+
+

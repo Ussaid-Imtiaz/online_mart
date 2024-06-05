@@ -1,93 +1,68 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from sqlmodel import Session, select
-from .models.user import User
-from .schemas.user import UserCreate, UserRead
-from .db import get_session, init_db
-from .hashing import hash_password, verify_password
-from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+from datetime import timedelta
+from typing import Annotated, AsyncGenerator
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlmodel import Session
+from app.auth import EXPIRY_TIME, authenticate_user, create_access_token, create_refresh_token, current_user, get_user_from_db, hash_password, oauth_scheme
+from app.db import create_tables, get_session
+from app.models import Register_User, Token, User
 
-app = FastAPI()
+# Step-7: Create contex manager for app lifespan
+@asynccontextmanager   # Allows you to run setup code before the application starts and teardown code after the application shuts down. 
+async def lifespan(app:FastAPI) -> AsyncGenerator[None,None]:   # indicates that the lifespan function is an async generator(type hint is used to indicate that a function returns an asynchronous generator) that doesn't produce any values (the first None) and doesn't accept any values sent to it (the second None)
+    print("Creating Tables")
+    create_tables()
+    print("Tables Created")
+    yield     # Control is given back to FastAPI, app starts here. code before yield will run before the startup and code after the yield statement runs after the application shuts down
+    print("App is shutting down")
 
-origins = [
-    "http://localhost",
-    "http://localhost:8000",
-]
+# Create instance of FastAPI class 
+app : FastAPI = FastAPI(
+    lifespan=lifespan, # lifespan tells FastAPI to use the lifespan function to manage the application's lifespan events
+    title="My Todos", 
+    version="1.0",
+    servers=[
+        {
+            "url": "http://127.0.0.1:8000",
+            "description": "Development Server"
+        }
+    ]
+    ) 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.get("/")
+async def read_user():
+    return {"message": "Welcome to dailyDo todo app User Page"}
 
-@app.on_event("startup")
-async def on_startup():
-    await init_db()
-
-@app.post("/users/", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def create_user(*, session: Session = Depends(get_session), user: UserCreate):
-    db_user = session.exec(select(User).where(User.email == user.email)).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+@app.post("/register")
+async def regiser_user (new_user:Annotated[Register_User, Depends()],
+                        session:Annotated[Session, Depends(get_session)]):
     
-    hashed_password = hash_password(user.password)
-    new_user = User(username=user.username, email=user.email, hashed_password=hashed_password)
-    session.add(new_user)
+    db_user = get_user_from_db(session, new_user.username, new_user.email)
+    if db_user:
+        raise HTTPException(status_code=409, detail="User with these credentials already exists")
+    user = User(username = new_user.username,
+                email = new_user.email,
+                password = hash_password(new_user.password))
+    session.add(user)
     session.commit()
-    session.refresh(new_user)
-    return new_user
+    session.refresh(user)
+    return {"message": f""" User with {user.username} successfully registered """}
 
-@app.post("/users/login")
-def login(*, session: Session = Depends(get_session), user: UserCreate):
-    db_user = session.exec(select(User).where(User.email == user.email)).first()
-    if not db_user or not verify_password(user.password, db_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Invalid credentials")
-    return {"message": "Login successful"}
+@app.post('/token', response_model=Token)
+async def login(form_data:Annotated[OAuth2PasswordRequestForm, Depends()],
+                session:Annotated[Session, Depends(get_session)]):
+    user = authenticate_user (form_data.username, form_data.password, session)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    expire_time = timedelta(minutes=EXPIRY_TIME)
+    access_token = create_access_token({"sub":form_data.username}, expire_time)
 
+    return Token(access_token=access_token, token_type="bearer")
 
-import json
-from kafka import KafkaConsumer
-from concurrent.futures import ThreadPoolExecutor
-import inventory_pb2
-from google.protobuf.json_format import Parse
+@app.get('/me')
+async def user_profile (current_user:Annotated[User, Depends(current_user)]):
 
-# Function to handle inventory updates
-def handle_inventory_update(message):
-    try:
-        inventory_update = Parse(message.value, inventory_pb2.InventoryUpdate())
-        print(f"Received inventory update: {inventory_update}")
-        # Handle the inventory update as needed
-    except Exception as e:
-        print(f"Error handling message: {e}")
+    return current_user
 
-# Setup Kafka consumer
-consumer = KafkaConsumer(
-    'inventory_updates',
-    bootstrap_servers='kafka:9092',
-    value_deserializer=lambda v: json.loads(v.decode('utf-8'))
-)
-
-executor = ThreadPoolExecutor(max_workers=1)
-
-def consume_messages():
-    for message in consumer:
-        executor.submit(handle_inventory_update, message)
-
-if __name__ == "__main__":
-    # Run the consumer in a separate thread
-    import threading
-    consumer_thread = threading.Thread(target=consume_messages)
-    consumer_thread.start()
-
-    # Start the FastAPI app
-    import uvicorn
-    from fastapi import FastAPI
-
-    app = FastAPI()
-
-    @app.get("/")
-    def read_root():
-        return {"message": "Welcome to the User Service!"}
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
