@@ -30,6 +30,8 @@ app : FastAPI = FastAPI(
     ]
 ) 
     
+logged_in_users = set()  # Set to keep track of logged-in users
+
 # Step-9: Create all endpoints of Product app
 @app.get("/")
 async def root():

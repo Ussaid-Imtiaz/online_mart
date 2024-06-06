@@ -1,16 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlmodel import Session, select
 from .models.order import Order
-from ..schemas.order import OrderCreate, OrderRead
-from ..db import get_session, init_db
+from app.schemas.order import OrderCreate, OrderRead
+from app.db import get_session, init_db
 from fastapi.middleware.cors import CORSMiddleware
 import json
 from kafka import KafkaConsumer
 from concurrent.futures import ThreadPoolExecutor
 import inventory_pb2
 from google.protobuf.json_format import Parse
-
-
 
 app = FastAPI()
 
