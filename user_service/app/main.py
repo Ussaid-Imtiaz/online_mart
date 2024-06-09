@@ -10,6 +10,7 @@ from app.db import create_tables, get_session
 from app.models import Register_User, Token, User
 from app.kafka_utils import create_topic, kafka_producer
 from app import settings
+from app import user_login_pb2
 
 # Step-7: Create contex manager for app lifespan
 @asynccontextmanager   # Allows you to run setup code before the application starts and teardown code after the application shuts down. 
@@ -24,11 +25,11 @@ async def lifespan(app:FastAPI) -> AsyncGenerator[None,None]:   # indicates that
 # Create instance of FastAPI class 
 app : FastAPI = FastAPI(
     lifespan=lifespan, # lifespan tells FastAPI to use the lifespan function to manage the application's lifespan events
-    title="My Todos", 
+    title="User Service", 
     version="1.0",
     servers=[
         {
-            "url": "http://127.0.0.1:8000",
+            "url": "http://127.0.0.1:8016",
             "description": "Development Server"
         }
     ]
@@ -57,8 +58,7 @@ async def regiser_user (new_user:Annotated[Register_User, Depends()],
 async def login(
     form_data:Annotated[OAuth2PasswordRequestForm, Depends()],
     session:Annotated[Session, Depends(get_session)],
-    producer: Annotated[AIOKafkaProducer, Depends(kafka_producer)],
-    user: User
+    producer: Annotated[AIOKafkaProducer, Depends(kafka_producer)]
     ):
 
     user = authenticate_user (form_data.username, form_data.password, session)
@@ -68,15 +68,13 @@ async def login(
     expire_time = timedelta(minutes=EXPIRY_TIME)
     access_token = create_access_token({"sub":form_data.username}, expire_time)
 
-    user_proto = user_pb2.User()
-    user_dict = {field: getattr(user_proto, field) for field in user_proto.dict()}
-    serialized_user = user_dict.SerializeToString()
+    user_logged_in_event = user_login_pb2.UserLoggedIn(username=user.username)
+    serialized_user = user_logged_in_event.SerializeToString()
     await producer.send_and_wait(settings.KAFKA_USER_TOPIC, serialized_user)
 
     return Token(access_token=access_token, token_type="bearer")
 
 @app.get('/me')
 async def user_profile (current_user:Annotated[User, Depends(current_user)]):
-
     return current_user
 

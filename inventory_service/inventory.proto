@@ -1,8 +1,0 @@
-syntax = "proto3";
-
-package inventory;
-
-message InventoryUpdate {
-    int32 product_id = 1;
-    int32 quantity = 2;
-}

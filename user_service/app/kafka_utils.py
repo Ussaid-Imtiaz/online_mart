@@ -18,7 +18,7 @@ async def create_topic():
 
 # Kafka Producer as a dependency
 async def kafka_producer():
-    producer = AIOKafkaProducer(bootstrap_servers='broker:9092')
+    producer = AIOKafkaProducer(bootstrap_servers=settings.BOOTSTRAP_SERVER)
     await producer.start()
     try:
         yield producer

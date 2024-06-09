@@ -10,26 +10,24 @@ async def create_topic():
     admin_client = AIOKafkaAdminClient(
         bootstrap_servers=settings.BOOTSTRAP_SERVER)
     await admin_client.start()
-    topic_list = [NewTopic(name=settings.KAFKA_PRODUCT_TOPIC, num_partitions=2, replication_factor=1)]
+    topic_list = [NewTopic(name=settings.KAFKA_ORDER_TOPIC, num_partitions=2, replication_factor=1)]
     try:
         await admin_client.create_topics(new_topics=topic_list, validate_only=False)
-        print(f"Topic '{settings.KAFKA_PRODUCT_TOPIC}' created successfully")
+        print(f"Topic '{settings.KAFKA_ORDER_TOPIC}' created successfully")
     except Exception as e:
-        print(f"Failed to create topic '{settings.KAFKA_PRODUCT_TOPIC}': {e}")
+        print(f"Failed to create topic '{settings.KAFKA_ORDER_TOPIC}': {e}")
     finally:
         await admin_client.close()
 
 
 # Kafka Producer as a dependency
 async def get_kafka_producer():
-    producer = AIOKafkaProducer(bootstrap_servers='broker:19092')
+    producer = AIOKafkaProducer(bootstrap_servers=settings.BOOTSTRAP_SERVER)
     await producer.start()
     try:
         yield producer
     finally:
         await producer.stop()
-
-
 
 
 logged_in_users = set()  # Set to keep track of logged-in users
@@ -39,7 +37,7 @@ async def consume_login_user_event():
     consumer = AIOKafkaConsumer(
         'user_logged_in',
         bootstrap_servers=settings.BOOTSTRAP_SERVER,
-        group_id=settings.KAFKA_PRODUCT_GROUP_ID,
+        group_id=settings.KAFKA_ORDER_GROUP_ID,
         auto_offset_reset = 'earliest'
     )
 

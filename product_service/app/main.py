@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, Depends, HTTPException
 from sqlmodel import  Session, select, Session
 from contextlib import asynccontextmanager
@@ -6,6 +7,8 @@ from typing import Annotated
 from app.db import create_tables, get_session
 from app.models import Product
 from app.schemas import ProductRead, ProductCreate
+from app.kafka_utils import consume_login_user_event, verify_logged_in_user
+
 
 # Step-7: Create contex manager for app lifespan
 @asynccontextmanager   # Allows you to run setup code before the application starts and teardown code after the application shuts down. 
@@ -14,7 +17,11 @@ async def lifespan(app:FastAPI) -> AsyncGenerator[None,None]:   # indicates that
     print("Creating Tables")
     create_tables()
     print("Tables Created")
+    loop = asyncio.get_event_loop()
+    task = loop.create_task(consume_login_user_event())
     yield     # Control is given back to FastAPI, app starts here. code before yield will run before the startup and code after the yield statement runs after the application shuts down
+    task.cancel()
+    await task
     print("App is shutting down")
 
 # Create instance of FastAPI class 
@@ -24,13 +31,13 @@ app : FastAPI = FastAPI(
     version="1.0",
     servers=[
         {
-            "url": "http://127.0.0.1:8000",
+            "url": "http://127.0.0.1:8015",
             "description": "Development Server"
         }
     ]
 ) 
     
-logged_in_users = set()  # Set to keep track of logged-in users
+
 
 # Step-9: Create all endpoints of Product app
 @app.get("/")
@@ -38,7 +45,8 @@ async def root():
     return {"Hello" : "This is Product Service."}
 
 @app.get("/products", response_model=List[ProductRead])
-async def get_all(session:Annotated[Session, Depends(get_session)]
+async def get_all(session:Annotated[Session, Depends(get_session)],
+                  username : Annotated[str, Depends(verify_logged_in_user)]
                   ) -> List[ProductRead]:
     
     statement = select(Product)
@@ -49,7 +57,9 @@ async def get_all(session:Annotated[Session, Depends(get_session)]
         raise HTTPException(status_code=404, detail="No Product Found")
 
 @app.get("/products/{id}", response_model=ProductRead )
-async def get_one(id: int ,session:Annotated[Session, Depends(get_session)]) -> ProductRead:
+async def get_one(id: int ,session:Annotated[Session, Depends(get_session)],
+username : Annotated[str, Depends(verify_logged_in_user)]
+) -> ProductRead:
     # SQLModel queries: Select Product of given id and execute first result
     product = session.exec(select(Product).where(Product.id == id)).first()
 
@@ -62,7 +72,8 @@ async def get_one(id: int ,session:Annotated[Session, Depends(get_session)]) -> 
 @app.post("/products/", response_model=ProductRead)
 async def create_product(
     product: ProductCreate, 
-    session: Annotated[Session, Depends(get_session)]
+    session: Annotated[Session, Depends(get_session)],
+    
     )->ProductRead:
 
     new_product = Product(name=product.name, description=product.description, price=product.price, stock=product.stock)

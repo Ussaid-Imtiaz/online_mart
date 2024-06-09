@@ -1,148 +1,55 @@
 version: "3.9"
 name: online_mart
 
-x-kong-config: &kong-env
-  KONG_DATABASE: ${KONG_DATABASE:-postgres}
-  KONG_PG_DATABASE: ${KONG_PG_DATABASE:-kong}
-  KONG_PG_HOST: db
-  KONG_PG_USER: ${KONG_PG_USER:-kong}
-  KONG_PG_PASSWORD_FILE: /run/secrets/kong_postgres_password
-
-volumes:
-  kong_data: {}
-  kong_prefix_vol:
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-  kong_tmp_vol:
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-  postgres_db:
-    driver: local
-  pgadmin:
-    driver: local
-
-networks:
-  default:
-    driver: bridge
-
 services:
-  kong-migrations:
-    image: "${KONG_DOCKER_TAG:-kong:latest}"
-    command: kong migrations bootstrap
-    profiles: ["database"]
-    depends_on:
-      - db
-    environment:
-      <<: *kong-env
-    secrets:
-      - kong_postgres_password
-    restart: on-failure
+  # inventory:
+  #   build:
+  #     context: ./inventory_service
+  #     dockerfile: Dockerfile.dev
+  #   volumes:
+  #     - ./inventory_service:/code # Sync local development directory with the container
+  #   depends_on:
+  #     - inventory_db
+  #     - broker
+  #   ports:
+  #     - "8011:8000"
+  # inventory_db:
+  #   image: postgres:latest # Use the official PostgreSQL image
+  #   restart: always
+  #   container_name: Inventory_db
+  #   environment:
+  #     - POSTGRES_USER=ziakhan
+  #     - POSTGRES_PASSWORD=my_password
+  #     - POSTGRES_DB=inventory_db
+  #   ports:
+  #     - "5438:5432"
+  #   volumes:
+  #     - inventory_database:/var/lib/postgresql/data
 
-  kong-migrations-up:
-    image: "${KONG_DOCKER_TAG:-kong:latest}"
-    command: kong migrations up && kong migrations finish
-    profiles: ["database"]
-    depends_on:
-      - db
-    environment:
-      <<: *kong-env
-    secrets:
-      - kong_postgres_password
-    restart: on-failure
+  # notification:
+  #   build:
+  #     context: ./notification_service
+  #     dockerfile: Dockerfile.dev
+  #   volumes:
+  #     - ./notification_service:/code # Sync local development directory with the container
+  #   depends_on:
+  #     - notification_db
+  #     - broker
+  #   ports:
+  #     - "8012:8000"
+  # notification_db:
+  #   image: postgres:latest # Use the official PostgreSQL image
+  #   restart: always
+  #   container_name: notification_db
+  #   environment:
+  #     - POSTGRES_USER=ziakhan
+  #     - POSTGRES_PASSWORD=my_password
+  #     - POSTGRES_DB=notification_db
+  #   ports:
+  #     - "5437:5432"
+  #   volumes:
+  #     - notification_database:/var/lib/postgresql/data
 
-  kong:
-    image: "${KONG_DOCKER_TAG:-kong:latest}"
-    user: "${KONG_USER:-kong}"
-    environment:
-      <<: *kong-env
-      KONG_ADMIN_ACCESS_LOG: /dev/stdout
-      KONG_ADMIN_ERROR_LOG: /dev/stderr
-      KONG_PROXY_LISTEN: "${KONG_PROXY_LISTEN:-0.0.0.0:8000}"
-      KONG_ADMIN_LISTEN: "${KONG_ADMIN_LISTEN:-0.0.0.0:8001}"
-      KONG_ADMIN_GUI_LISTEN: "${KONG_ADMIN_GUI_LISTEN:-0.0.0.0:8002}"
-      KONG_PROXY_ACCESS_LOG: /dev/stdout
-      KONG_PROXY_ERROR_LOG: /dev/stderr
-      KONG_PREFIX: ${KONG_PREFIX:-/var/run/kong}
-      KONG_DECLARATIVE_CONFIG: "/opt/kong/kong.yaml"
-    secrets:
-      - kong_postgres_password
-    ports:
-      # The following two environment variables default to an insecure value (0.0.0.0)
-      # according to the CIS Security test.
-      - "${KONG_INBOUND_PROXY_LISTEN:-0.0.0.0}:8000:8000/tcp"
-      - "${KONG_INBOUND_SSL_PROXY_LISTEN:-0.0.0.0}:8443:8443/tcp"
-      # Making them mandatory but undefined, like so would be backwards-breaking:
-      # - "${KONG_INBOUND_PROXY_LISTEN?Missing inbound proxy host}:8000:8000/tcp"
-      # - "${KONG_INBOUND_SSL_PROXY_LISTEN?Missing inbound proxy ssl host}:8443:8443/tcp"
-      # Alternative is deactivating check 5.13 in the security bench, if we consider Kong's own config to be enough security here
-
-      - "127.0.0.1:8001:8001/tcp"
-      - "127.0.0.1:8444:8444/tcp"
-      - "127.0.0.1:8002:8002/tcp"
-    healthcheck:
-      test: ["CMD", "kong", "health"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-    restart: on-failure:5
-    read_only: true
-    volumes:
-      - kong_prefix_vol:${KONG_PREFIX:-/var/run/kong}
-      - kong_tmp_vol:/tmp
-      # - ./config:/opt/kong
-    security_opt:
-      - no-new-privileges
-
-  db:
-    image: postgres:9.5
-    profiles: ["database"]
-    environment:
-      POSTGRES_DB: ${KONG_PG_DATABASE:-kong}
-      POSTGRES_USER: ${KONG_PG_USER:-kong}
-      POSTGRES_PASSWORD_FILE: /run/secrets/kong_postgres_password
-    secrets:
-      - kong_postgres_password
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "pg_isready",
-          "-d",
-          "${KONG_PG_DATABASE:-kong}",
-          "-U",
-          "${KONG_PG_USER:-kong}",
-        ]
-      interval: 30s
-      timeout: 30s
-      retries: 3
-    restart: on-failure
-    stdin_open: true
-    tty: true
-    volumes:
-      - kong_data:/var/lib/postgresql/data
-
-  inventory:
-    build:
-      context: ./inventory_service
-      dockerfile: Dockerfile.dev
-    volumes:
-      - ./inventory_service:/code # Sync local development directory with the container
-    depends_on:
-      - postgres_db
-    ports:
-      - "8011:8011"
-  notification:
-    build:
-      context: ./notification_service
-      dockerfile: Dockerfile.dev
-    volumes:
-      - ./notification_service:/code # Sync local development directory with the container
-    depends_on:
-      - postgres_db
-    ports:
-      - "8012:8012"
   order:
     build:
       context: ./order_service
@@ -150,19 +57,47 @@ services:
     volumes:
       - ./order_service:/code # Sync local development directory with the container
     depends_on:
-      - postgres_db
+      - order_db
+      - broker
     ports:
-      - "8013:8013"
-  payment:
-    build:
-      context: ./payment_service
-      dockerfile: Dockerfile.dev
+      - "8013:8000"
+  order_db:
+    image: postgres:latest # Use the official PostgreSQL image
+    restart: always
+    container_name: order_db
+    environment:
+      - POSTGRES_USER=ziakhan
+      - POSTGRES_PASSWORD=my_password
+      - POSTGRES_DB=order_db
+    ports:
+      - "5435:5432"
     volumes:
-      - ./payment_service:/code # Sync local development directory with the container
-    depends_on:
-      - postgres_db
-    ports:
-      - "8014:8014"
+      - order_database:/var/lib/postgresql/data
+
+  # payment:
+  #   build:
+  #     context: ./payment_service
+  #     dockerfile: Dockerfile.dev
+  #   volumes:
+  #     - ./payment_service:/code # Sync local development directory with the container
+  #   depends_on:
+  #     - payment_db
+  #     - broker
+  #   ports:
+  #     - "8014:8000"
+  # payment_db:
+  #   image: postgres:latest # Use the official PostgreSQL image
+  #   restart: always
+  #   container_name: payment_db
+  #   environment:
+  #     - POSTGRES_USER=ziakhan
+  #     - POSTGRES_PASSWORD=my_password
+  #     - POSTGRES_DB=payment_db
+  #   ports:
+  #     - "5434:5432"
+  #   volumes:
+  #     - payment_database:/var/lib/postgresql/data
+
   product:
     build:
       context: ./product_service
@@ -170,9 +105,24 @@ services:
     volumes:
       - ./product_service:/code # Sync local development directory with the container
     depends_on:
-      - postgres_db
+      - product_db
+      - broker
     ports:
-      - "8015:8015"
+      - "8015:8000"
+
+  product_db:
+    image: postgres:latest # Use the official PostgreSQL image
+    restart: always
+    container_name: product_db
+    environment:
+      - POSTGRES_USER=ziakhan
+      - POSTGRES_PASSWORD=my_password
+      - POSTGRES_DB=product_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - product_database:/var/lib/postgresql/data
+
   user:
     build:
       context: ./user_service
@@ -180,22 +130,23 @@ services:
     volumes:
       - ./user_service:/code # Sync local development directory with the container
     depends_on:
-      - postgres_db
+      - user_db
+      - broker
     ports:
-      - "8016:8016"
+      - "8016:8000"
 
-  postgres_db:
+  user_db:
     image: postgres:latest # Use the official PostgreSQL image
     restart: always
-    container_name: PostgresCont
+    container_name: user_db
     environment:
       - POSTGRES_USER=ziakhan
       - POSTGRES_PASSWORD=my_password
-      - POSTGRES_DB=mydatabase
+      - POSTGRES_DB=user_db
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
-      - postgres_db:/var/lib/postgresql/data
+      - user_database:/var/lib/postgresql/data
 
   broker:
     image: apache/kafka:3.7.0
@@ -230,39 +181,19 @@ services:
       DYNAMIC_CONFIG_ENABLED: "true"
     depends_on:
       - broker
-
-  specs-combiner-server:
-    build:
-      context: ./specs-combiner
-      dockerfile: Dockerfile
-    volumes:
-      - ./specs-combiner:/code # Sync local development directory with the container
-    depends_on:
-      - kong
-      - inventory
-      - product
-      - user
-      - payment
-      - order
-      - notification
-    ports:
-      - "9000:9000" # Expose container port 9000 to host port 9000
-
-  pgadmin:
-    image: dpage/pgadmin4:8.6
-    restart: always
-    container_name: PgAdmin4Cont
-    ports:
-      - "8010:80"
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=kong@gmail.com
-      - PGADMIN_DEFAULT_PASSWORD=kong@gmail.com
-    volumes:
-      - pgadmin:/var/lib/pgadmin
-    depends_on:
-      - postgres_db
-      - db
-
-secrets:
-  kong_postgres_password:
-    file: ./POSTGRES_PASSWORD
+volumes:
+  # inventory_database:
+  #   driver: local
+  # notification_database:
+  #   driver: local
+  order_database:
+    driver: local
+  # payment_database:
+  #   driver: local
+  product_database:
+    driver: local
+  user_database:
+    driver: local
+networks:
+  default:
+    driver: bridge
