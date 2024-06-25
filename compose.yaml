@@ -26,29 +26,29 @@ services:
   #   volumes:
   #     - inventory_database:/var/lib/postgresql/data
 
-  # notification:
-  #   build:
-  #     context: ./notification_service
-  #     dockerfile: Dockerfile.dev
-  #   volumes:
-  #     - ./notification_service:/code # Sync local development directory with the container
-  #   depends_on:
-  #     - notification_db
-  #     - broker
-  #   ports:
-  #     - "8012:8000"
-  # notification_db:
-  #   image: postgres:latest # Use the official PostgreSQL image
-  #   restart: always
-  #   container_name: notification_db
-  #   environment:
-  #     - POSTGRES_USER=ziakhan
-  #     - POSTGRES_PASSWORD=my_password
-  #     - POSTGRES_DB=notification_db
-  #   ports:
-  #     - "5437:5432"
-  #   volumes:
-  #     - notification_database:/var/lib/postgresql/data
+  notification:
+    build:
+      context: ./notification_service
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./notification_service:/code # Sync local development directory with the container
+    depends_on:
+      - notification_db
+      - broker
+    ports:
+      - "8012:8000"
+  notification_db:
+    image: postgres:latest # Use the official PostgreSQL image
+    restart: always
+    container_name: notification_db
+    environment:
+      - POSTGRES_USER=ziakhan
+      - POSTGRES_PASSWORD=my_password
+      - POSTGRES_DB=notification_db
+    ports:
+      - "5437:5432"
+    volumes:
+      - notification_database:/var/lib/postgresql/data
 
   order:
     build:
@@ -184,8 +184,8 @@ services:
 volumes:
   # inventory_database:
   #   driver: local
-  # notification_database:
-  #   driver: local
+  notification_database:
+    driver: local
   order_database:
     driver: local
   # payment_database:

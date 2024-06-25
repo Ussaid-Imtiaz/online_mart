@@ -57,7 +57,9 @@ async def get_all(session:Annotated[Session, Depends(get_session)]
         raise HTTPException(status_code=404, detail="No order Found")
 
 @app.get("/orders/{id}", response_model=OrderRead )
-async def get_one(id: int ,session:Annotated[Session, Depends(get_session)]) -> OrderRead:
+async def get_one(id: int ,
+                  session:Annotated[Session, Depends(get_session)]
+                  ) -> OrderRead:
     # SQLModel queries: Select order of given id and execute first result
     order = session.exec(select(Order).where(Order.id == id)).first()
 
@@ -73,7 +75,7 @@ async def create_order(
     session: Annotated[Session, Depends(get_session)],
     producer: Annotated[AIOKafkaProducer, Depends(get_kafka_producer)],
     username : Annotated[str, Depends(verify_logged_in_user)]
-    )->OrderRead:
+    )-> OrderRead:
 
     new_order = Order(user_name=order.user_name, product_name=order.product_name, quantity=order.quantity)
     # Add order to the database
@@ -128,8 +130,6 @@ async def delete_order(
         return {"message": "order Deleted Successfully"}
     else:
         raise HTTPException(status_code=404, detail="No order Found")
-
-
 
 
 
