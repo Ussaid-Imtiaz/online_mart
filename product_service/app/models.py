@@ -7,3 +7,5 @@ class Product(SQLModel, table=True):
     description: Optional[str] = None
     price: float
     stock: int
+
+
